@@ -2,13 +2,14 @@ defaults:
   - train
   - _self_
 
-# Select exactly one source: a published LeRobot checkpoint (default) or skeleton best.pth.
-pretrained_path: lerobot/diffusion_pusht
+# Policy source: checkpoint_path (a best.pth trained here) takes precedence over pretrained_path (a LeRobot policy directory).
+# Create the default pretrained_path with scripts/download_pretrained.sh (Hub lerobot/diffusion_pusht, converted for lerobot 0.6).
+pretrained_path: ${ckpt_root}/diffusion_pusht
 checkpoint_path: null
 apply_ema: false
 n_episodes: 3
 max_steps: 300
-video_dir: ${original_work_dir}/data/videos
+video_dir: ${result_dir}/videos
 
 hydra:
   run:

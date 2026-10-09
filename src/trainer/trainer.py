@@ -145,7 +145,7 @@ class TrainingPipeline:
             # Validation returns global sample-weighted means on every rank.
             # The manager synchronizes best-model selection and early stopping state.
             if step % self.validate_every == 0 or step == self.iterations:
-                last_metrics = self.eval()
+                last_metrics = self.validate()
                 metrics.update(
                     {f"val/{key}": value for key, value in last_metrics.items()}
                 )
@@ -218,10 +218,6 @@ class TrainingPipeline:
             finally:
                 self.model = training_model
                 self.model.train(was_training)
-
-    def eval(self):
-        """Run the existing in-training validation procedure."""
-        return self.validate()
 
     def resume(self, checkpoint_path):
         if self.manager.dataloader is None:

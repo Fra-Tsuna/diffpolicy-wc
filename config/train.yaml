@@ -23,6 +23,11 @@ resume_from: null
 hydra:
   job:
     chdir: false
+  # colorlog writes the log relative to the working directory; keep it in the run directory.
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.runtime.output_dir}/${hydra.job.name}.log
   run:
     dir: ${original_work_dir}/outputs/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:

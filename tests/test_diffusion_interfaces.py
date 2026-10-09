@@ -8,13 +8,6 @@ from src.trainer.trainer import TrainingPipeline
 from src.inference.inference import InferencePipeline
 
 
-def test_training_pipeline_has_eval_and_preserves_validate():
-    assert callable(TrainingPipeline.train)
-    assert callable(TrainingPipeline.eval)
-    assert callable(TrainingPipeline.validate)
-    assert callable(TrainingPipeline.resume)
-
-
 def test_training_loss_delegates_to_model():
     obj = TrainingPipeline.__new__(TrainingPipeline)
     obj.model = lambda batch: (batch["a"] ** 2).mean()

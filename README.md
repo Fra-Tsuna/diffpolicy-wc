@@ -1,61 +1,73 @@
-# Diffusion Policy project, built by modifying `skeleton` directly
+# Diffusion Policy on PushT
 
-This is a **full copy** of the uploaded `skeleton` project, not an overlay or subclass package. The existing `src/trainer/trainer.py` and `src/inference/inference.py` are edited in place. All existing pipeline functions and infrastructure remain.
+Diffusion Policy trained on [`lerobot/pusht`](https://huggingface.co/datasets/lerobot/pusht) with LeRobot, Accelerate, Hydra and W&B.
 
-## Where Diffusion Policy lives
+## Layout
 
-| File | Responsibility |
+| Path | Contents |
 | --- | --- |
-| `src/dataset/dataset.py` | Reads `lerobot/pusht` via LeRobot, constructs observation/action windows, and performs an episode-disjoint train/validation/test split (`val_fraction` and `test_fraction`, 10% each by default). |
-| `src/models/model.py` | Wraps LeRobot's `DiffusionPolicy` and its pre/postprocessors as your project's model (`DiffusionPolicyWrapper`). |
-| `src/trainer/trainer.py` | Your original `TrainingPipeline`, with `compute_loss()` implemented for diffusion and a new `eval()` alias for in-training validation. All checkpoint, Accelerate, EMA, scheduler, resume, logging and `validate()` behavior is retained. |
-| `src/inference/inference.py` | Your original `InferencePipeline`, with `compute_metrics()` implemented for offline diffusion loss; `predict()`, `metric_weight()`, `on_prediction()` and `run()` retained. |
-| `main.py` / `eval.py` | Your original training and evaluation entry points, unchanged. |
-| `rollout.py` | Extra entry point for closed-loop PushT simulation, recording MP4 videos. |
-| `config/` | Original Hydra config hierarchy, with dataset/model settings for diffusion. |
+| `main.py` | Training entry point. |
+| `eval.py` | Offline evaluation of a checkpoint (denoising loss) on the test or val split. |
+| `rollout.py` | Closed-loop rollouts in the PushT simulator, saved as MP4 videos. |
+| `src/dataset/dataset.py` | LeRobot dataset with observation/action windows and an episode-disjoint train/val/test split. |
+| `src/models/model.py` | `DiffusionPolicyWrapper`: LeRobot's `DiffusionPolicy` and its pre/postprocessors as an `nn.Module`. |
+| `src/trainer/` | Training loop, validation, EMA, checkpointing and resume. |
+| `src/inference/inference.py` | Evaluation loop used by `eval.py`. |
+| `config/` | Hydra configs. `train.yaml` is the base; `eval.yaml` and `rollout.yaml` extend it. |
+| `scripts/` | Shell wrappers for setup, training, evaluation, rollouts and tests. See [scripts/README.md](scripts/README.md). |
 
-No new `diffusion_trainer.py` or `diffusion_inference.py` subclasses exist.
+## Setup
 
-## Install
-
-```bash
-python -m pip install -r requirements-lerobot.txt
-```
-
-`requirements-lerobot.txt` includes the original `requirements.txt`. LeRobot downloads the `lerobot/pusht` dataset from the Hugging Face Hub to its cache. `data_root` is preserved in the Dataset constructor for template compatibility but does not override the LeRobot cache.
-
-## Train and evaluate
+Requires conda and an NVIDIA driver >= 525.
 
 ```bash
-python main.py wandb.mode=offline
-python eval.py checkpoint_path=/ABSOLUTE/PATH/TO/checkpoints/best.pth wandb.mode=offline
-python eval.py checkpoint_path=/ABSOLUTE/PATH/TO/checkpoints/best.pth split=val  # evaluate on the validation split instead
+scripts/setup.sh    # creates the `diffpolicy` conda env (Python 3.12) and installs requirements-lerobot.txt + requirements-dev.txt
+wandb login         # or pass wandb.mode=offline to every command
 ```
 
-Training uses the train split and selects `best.pth` on the validation split. `eval.py` evaluates on the held-out test split by default, which is never seen during training or checkpoint selection. Metrics are logged as `eval/<split>/<metric>`.
+`requirements.txt` installs torch from the CUDA 12.6 wheels (the default PyPI build needs driver >= 580) and keeps torch, wandb and diffusers within the ranges that lerobot 0.6.1 supports. The dataset is downloaded to the Hugging Face cache on first use.
 
-Validation and standalone `eval.py` compute held-out **denoising loss**. This is not the same as closed-loop success in simulation. The training pipeline retains `validate()`, and adds `eval()` (which delegates to `validate()`) so all existing fixtures still work.
-
-## Simulated policy videos
-
-Pretrained official checkpoint:
+## Usage
 
 ```bash
-python rollout.py pretrained_path=lerobot/diffusion_pusht
+scripts/train.sh                                   # train
+scripts/eval.sh <run_dir>/checkpoints/best.pth     # test-split loss
+scripts/rollout.sh <run_dir>/checkpoints/best.pth  # simulator videos
+scripts/test.sh                                    # test suite
 ```
 
-Checkpoint trained within this project:
+Every script forwards extra arguments as Hydra overrides, e.g. `scripts/train.sh trainer.iterations=50000 trainer.use_ema=true`. `NUM_GPUS=<n> scripts/train.sh` trains on several GPUs and `ENV_NAME=<env>` picks another conda env.
+
+To resume training, pass `resume_from=<run_dir>/checkpoints/last`. To evaluate EMA weights, pass `apply_ema=true` to `eval.sh` or `rollout.sh`.
+
+### Pretrained policy
+
+The Hub checkpoint `lerobot/diffusion_pusht` is stored in the pre-0.4 LeRobot format. Convert it once into `ckpt/diffusion_pusht`, which is the rollout default:
 
 ```bash
-python rollout.py checkpoint_path=/ABSOLUTE/PATH/TO/checkpoints/best.pth
+scripts/download_pretrained.sh
+scripts/rollout.sh n_episodes=10
 ```
 
-Videos are saved under `data/videos`.
+## Outputs
 
-## Important limitations
+Each run writes to its own directory, along with its resolved config, log file and W&B files:
 
-- The published pretrained checkpoint and the newly initialized project's model may have different architectures. `rollout.py` loads the pretrained checkpoint directly without trying to fit it into the project's model.
-- Statistics are loaded from overall LeRobot dataset metadata, not recomputed from train-only episodes. This introduces a small leakage into strict offline validation.
-- Each validation pass samples fresh diffusion noise. The reported denoising loss therefore has random variation.
-- An end-to-end run with the actual LeRobot/Accelerate stack has **not** been performed here. Python syntax and mocked integration checks are included.
-- The original test `test_project_placeholders_and_empty_cycle` was updated because dataset/model placeholders now have real implementations. All other skeleton tests and fixture classes are preserved.
+| Command | Directory |
+| --- | --- |
+| train | `outputs/<name>/<date>/<time>/`, with `checkpoints/best.pth` (weights only) and `checkpoints/last/` (full state for resuming) |
+| eval | `outputs/<name>/eval/<date>/<time>/metrics.json` |
+| rollout | `outputs/<name>/rollout/<date>/<time>/videos/` |
+
+`<name>` is the `name` config value (`diffusion_pusht` by default).
+
+## Data splits
+
+Episodes are shuffled with `seed` and split by whole episode: 10% validation, 10% test and the rest for training (`val_fraction` and `test_fraction` in `config/dataloader/dataset/*.yaml`, which must match across the three files). Training selects `best.pth` on the validation loss. `eval.py` uses the test split by default; pass `split=val` to evaluate on the validation split. Metrics are logged as `eval/<split>/<metric>`.
+
+## Notes
+
+- Validation and `eval.py` report the diffusion **denoising loss**, which is not the same as task success. Use `rollout.py` to measure success in the simulator.
+- Each evaluation samples fresh diffusion noise, so the loss varies slightly between runs.
+- Normalization statistics come from the full dataset metadata, not from the training episodes only, so a small amount of information leaks into validation and test.
+- Checkpoints store the model class path (`src.models.model.DiffusionPolicyWrapper`). Renaming the class breaks loading of older checkpoints.
