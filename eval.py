@@ -23,8 +23,7 @@ def main(cfg: DictConfig):
     if accelerator.is_main_process:  # Only the main process prints the cfg
         pretty_print_config(cfg)
 
-    # Instantiate the model from its saved configuration and restore its weights.
-    # Apply EMA weights when requested.
+    # Instantiate the model from the checkpoint and restore its (optionally EMA) weights
     checkpoint = CheckpointManager.read(cfg.checkpoint_path)
     model = instantiate(checkpoint["config"]["model"])
     CheckpointManager.restore_model(checkpoint, model, apply_ema=cfg.apply_ema)
@@ -32,20 +31,22 @@ def main(cfg: DictConfig):
     # Let Accelerate prepare the model for evaluation.
     model = accelerator.prepare_model(model, evaluation_mode=True)
 
-    # Build the DataLoader of the requested split (test by default).
-    # Prepare it separately to avoid padding it with duplicate samples.
+    # Build the DataLoader of the requested split (test by default)
     if cfg.split not in ("val", "test"):
         raise ValueError(f"Evaluation split must be 'val' or 'test', got: {cfg.split}")
     dataloader = make_dataloader(cfg[f"{cfg.split}_dataloader"], cfg.seed)
+    # Prepare it separately to avoid padding it with duplicate samples.
     dataloader = prepare_eval_dataloader(dataloader, accelerator)
 
-    # Initialize W&B tracking with the evaluation config and saved model config.
+    # Record the model config saved in the checkpoint, which is the one being evaluated.
     resolved_config = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
     resolved_config["model"] = checkpoint["config"]["model"]
+
+    # Initialize W&B tracking
     init_wandb(accelerator, cfg.wandb, resolved_config, cfg.result_dir)
 
     try:
-        # Instantiate the inference pipeline with the prepared runtime objects.
+        # Instantiate the inference pipeline
         pipeline = instantiate(
             cfg.inference,
             model=model,
@@ -53,14 +54,14 @@ def main(cfg: DictConfig):
             accelerator=accelerator,
         )
 
-        # Run evaluation and log the resulting metrics to W&B.
+        # Run evaluation and log the metrics
         metrics = pipeline.run()
         accelerator.log(
             {f"eval/{cfg.split}/{key}": value for key, value in metrics.items()},
             step=0,
         )
 
-        # Only the main process saves and prints the evaluation metrics.
+        # Only the main process saves and prints the metrics
         if accelerator.is_main_process:
             result_dir = Path(cfg.result_dir)
             (result_dir / "metrics.json").write_text(

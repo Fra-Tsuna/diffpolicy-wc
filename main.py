@@ -26,23 +26,20 @@ def main(cfg: DictConfig):
     if accelerator.is_main_process:  # Only the main process prints the cfg
         pretty_print_config(cfg)
 
-    # Build training and validation DataLoaders.
-    # Use separate seeds for their sampling and worker initialization.
+    # Build training and validation DataLoaders
     train_loader = make_dataloader(cfg.train_dataloader, cfg.seed)
     val_loader = make_dataloader(cfg.val_dataloader, cfg.seed + 1)
 
-    # Instantiate the model with its configured parameters and
-    # any additional dataset-dependent params.
+    # Instantiate the model
     model_kwargs = train_loader.dataset.model_kwargs()
     model = instantiate(cfg.model, **model_kwargs)
 
-    # Initialize the optimizer with the model's trainable parameters.
+    # Initialize the optimizer with the model's trainable parameters
     optimizer = instantiate(cfg.optimizer, params=model.trainable_parameters())
 
-    # Build the configured learning-rate scheduler.
+    # Build the LR scheduler
     lr_scheduler = get_scheduler(**cfg.lr_scheduler, optimizer=optimizer)
 
-    # Report the training dataset size and model storage footprint.
     logger.info("Dataset size: %s", len(train_loader.dataset))
     logger.info("Model size: %.3f MiB", model_size_b(model) / MiB)
 
@@ -57,11 +54,11 @@ def main(cfg: DictConfig):
     resolved_config = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
     resolved_config["model"].update(model_kwargs)
 
-    # Initialize mandatory W&B tracking with the resolved configuration.
+    # Initialize W&B tracking
     init_wandb(accelerator, cfg.wandb, resolved_config, cfg.result_dir)
 
     try:
-        # Instantiate the trainer with the prepared runtime objects.
+        # Instantiate the trainer
         trainer = instantiate(
             cfg.trainer,
             model=model,
@@ -72,7 +69,7 @@ def main(cfg: DictConfig):
             run_config=resolved_config,
         )
 
-        # Restore training state when a checkpoint is provided, then start training.
+        # Restore training state when a checkpoint is provided
         if cfg.resume_from is not None:
             trainer.resume(cfg.resume_from)
         return trainer.train()
