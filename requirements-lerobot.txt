@@ -1,0 +1,3 @@
+-r requirements.txt
+lerobot[training,diffusion,pusht,evaluation]==0.6.1
+imageio[ffmpeg]

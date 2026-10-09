@@ -1,0 +1,14 @@
+_target_: accelerate.Accelerator
+cpu: false
+mixed_precision: "no"  # no, fp16, or bf16
+# The training loop advances the scheduler once per successful optimizer update.
+step_scheduler_with_optimizer: false
+project_config:
+  _target_: accelerate.utils.ProjectConfiguration
+  automatic_checkpoint_naming: false
+dataloader_config:
+  _target_: accelerate.DataLoaderConfiguration
+  use_stateful_dataloader: true
+  use_seedable_sampler: true
+  data_seed: ${seed}
+  dispatch_batches: false

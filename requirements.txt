@@ -1,0 +1,15 @@
+# CUDA 12.6 wheels: the default PyPI torch build targets CUDA 13 and needs NVIDIA driver >= 580.
+--extra-index-url https://download.pytorch.org/whl/cu126
+# Upper bounds on torch, wandb and diffusers follow lerobot 0.6.1 (see requirements-lerobot.txt).
+torch>=2.7,<2.12
+torchdata==0.11.0
+numpy>=1.26,<3
+hydra-core==1.3.2
+omegaconf>=2.3,<2.4
+hydra-colorlog==1.2.0
+accelerate==1.15.0
+wandb==0.27.2
+diffusers==0.39.0
+rich>=13,<15
+tqdm>=4.66,<5
+matplotlib>=3.8,<4

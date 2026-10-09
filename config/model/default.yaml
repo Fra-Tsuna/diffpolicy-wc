@@ -1,0 +1,9 @@
+_target_: src.models.model.DiffusionPolicyWrapper
+n_obs_steps: 2
+horizon: 16
+n_action_steps: 8
+num_train_timesteps: 100
+num_inference_steps: 20
+down_dims: [128, 256, 512]
+pretrained_backbone_weights: null
+# repo_id comes from Dataset.model_kwargs() and is saved with the checkpoint.

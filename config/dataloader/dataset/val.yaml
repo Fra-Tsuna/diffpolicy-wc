@@ -1,0 +1,9 @@
+_target_: src.dataset.dataset.Dataset
+data_root: ${data_root}
+repo_id: lerobot/pusht
+split: val
+n_obs_steps: ${model.n_obs_steps}
+horizon: ${model.horizon}
+val_fraction: 0.1
+test_fraction: 0.1
+seed: ${seed}

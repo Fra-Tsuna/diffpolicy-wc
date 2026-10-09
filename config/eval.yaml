@@ -1,0 +1,14 @@
+defaults:
+  - train
+  - dataloader@test_dataloader: test
+  - inference: default
+  - _self_
+
+checkpoint_path: ${ckpt_root}/best.pth
+apply_ema: false
+# Split to evaluate on: test (held-out) or val (the split used for checkpoint selection).
+split: test
+
+hydra:
+  run:
+    dir: ${original_work_dir}/outputs/${name}/eval/${now:%Y-%m-%d}/${now:%H-%M-%S}

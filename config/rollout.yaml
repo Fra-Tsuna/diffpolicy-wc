@@ -1,0 +1,15 @@
+defaults:
+  - train
+  - _self_
+
+# Select exactly one source: a published LeRobot checkpoint (default) or skeleton best.pth.
+pretrained_path: lerobot/diffusion_pusht
+checkpoint_path: null
+apply_ema: false
+n_episodes: 3
+max_steps: 300
+video_dir: ${original_work_dir}/data/videos
+
+hydra:
+  run:
+    dir: ${original_work_dir}/outputs/${name}/rollout/${now:%Y-%m-%d}/${now:%H-%M-%S}
