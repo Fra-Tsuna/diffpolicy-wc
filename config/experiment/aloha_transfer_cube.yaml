@@ -55,9 +55,11 @@ accelerator:
   mixed_precision: "no"
 
 # Frames are decoded from 480x640 AV1 videos: workers speed up loading (0.59 s -> 0.12 s per batch of 64 with 8).
+# Both loaders need workers or neither: LeRobot caches open video decoders per process, and workers forked
+# after the main process has decoded inherit them and fail with "decodeAVFrame ... Invalid data".
 train_dataloader:
   batch_size: 64
   num_workers: 0
 val_dataloader:
   batch_size: 64
-  num_workers: 0
+  num_workers: ${train_dataloader.num_workers}

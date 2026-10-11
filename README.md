@@ -38,7 +38,7 @@ Every command takes the same experiment override; PushT is the default:
 
 ```bash
 scripts/train.sh                                    # PushT
-scripts/train.sh experiment=aloha_transfer_cube     # ALOHA Transfer Cube
+scripts/train_aloha.sh                              # ALOHA Transfer Cube (= scripts/train.sh experiment=aloha_transfer_cube)
 ```
 
 `experiment=aloha_transfer_cube` ([config/experiment/aloha_transfer_cube.yaml](config/experiment/aloha_transfer_cube.yaml)) sets the dataset of all three splits (`repo_id`), the run name `diffusion_aloha_transfer_cube`, the image preprocessing and the simulator (`env=aloha_transfer_cube`). Pass it to `eval.sh` and `rollout.sh` too, so they use the ALOHA test split and simulator.
@@ -49,7 +49,7 @@ The policy reads its feature names and dimensions from the dataset metadata, so 
 
 ```bash
 # Train (best.pth is selected on the validation loss)
-scripts/train.sh experiment=aloha_transfer_cube trainer.use_ema=true
+scripts/train_aloha.sh trainer.use_ema=true train_dataloader.num_workers=8
 
 # Offline evaluation: denoising loss on the held-out test split
 scripts/eval.sh <run_dir>/checkpoints/best.pth experiment=aloha_transfer_cube
@@ -66,7 +66,7 @@ Drop `experiment=aloha_transfer_cube` for PushT. Every script forwards extra arg
 
 To resume training, pass `resume_from=<run_dir>/checkpoints/last` with the same experiment. `apply_ema=true` evaluates the EMA weights and requires a checkpoint trained with `trainer.use_ema=true`.
 
-ALOHA frames are decoded from 480x640 AV1 videos, so data loading is slow with the default `num_workers=0`. On a 22-thread laptop CPU, one batch of 64 took 0.59 s with 0 workers and 0.12 s with 8. Pass e.g. `train_dataloader.num_workers=8 val_dataloader.num_workers=8`. The training iteration count is the shared default (`trainer.iterations=10000`); set it explicitly for a full ALOHA run.
+ALOHA frames are decoded from 480x640 AV1 videos, so data loading is slow with the default `num_workers=0`. On a 22-thread laptop CPU, one batch of 64 took 0.59 s with 0 workers and 0.12 s with 8. Pass e.g. `train_dataloader.num_workers=8`; the ALOHA experiment gives the validation loader the same count. Mixing 0 and >0 workers between the two loaders crashes with `decodeAVFrame ... Invalid data`: LeRobot caches open video decoders per process, and workers forked after the main process has decoded inherit them. The training iteration count is the shared default (`trainer.iterations=10000`); set it explicitly for a full ALOHA run.
 
 ### Pretrained policy
 
