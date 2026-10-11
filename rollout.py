@@ -15,6 +15,7 @@ from lerobot.policies import make_pre_post_processors
 from lerobot.policies.diffusion import DiffusionPolicy
 
 from src.trainer.checkpoint_manager import CheckpointManager
+from src.utils.diffusion_overlay import DiffusionOverlay
 
 
 @hydra.main(version_base=None, config_path="config", config_name="rollout")
@@ -40,6 +41,13 @@ def main(cfg: DictConfig):
     env_cfg = PushtEnv(render_mode="rgb_array")
     env = make_env(env_cfg, n_envs=1, use_async_envs=False)["pusht"][0]
     env_preprocessor, env_postprocessor = make_env_pre_post_processors(env_cfg, policy.config)
+    overlay = None
+    if cfg.diffusion_overlay:
+        overlay = DiffusionOverlay(
+            policy,
+            to_env_action=lambda actions: env_postprocessor({"action": postprocessor(actions)})["action"],
+            denoising_frames=cfg.denoising_frames,
+        )
     video_dir = Path(cfg.video_dir)
     video_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,18 +55,22 @@ def main(cfg: DictConfig):
         for episode in range(cfg.n_episodes):
             observation, _ = env.reset(seed=cfg.seed + episode)
             policy.reset()
-            frames = []
+            frame = env.call("render")[0]
+            frames = [frame]
             reward_sum = 0.0
 
             for _ in range(cfg.max_steps):
                 batch = env_preprocessor(preprocess_observation(observation))
                 with torch.inference_mode():
                     action = policy.select_action(preprocessor(batch))
+                if overlay is not None:
+                    frames.extend(overlay.denoising_frames(frame))
                 action = postprocessor(action)
                 action = env_postprocessor({"action": action})["action"]
                 observation, reward, terminated, truncated, _ = env.step(action.cpu().numpy())
                 reward_sum += float(np.asarray(reward)[0])
-                frames.append(env.call("render")[0])
+                frame = env.call("render")[0]
+                frames.append(frame if overlay is None else overlay.draw_plan(frame))
                 if bool(np.asarray(terminated)[0] or np.asarray(truncated)[0]):
                     break
 

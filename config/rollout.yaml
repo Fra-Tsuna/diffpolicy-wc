@@ -10,6 +10,9 @@ apply_ema: false
 n_episodes: 3
 max_steps: 300
 video_dir: ${result_dir}/videos
+# Draw the denoising of each action chunk, then the plan being executed, on the videos.
+diffusion_overlay: true
+denoising_frames: 5
 
 hydra:
   run:
