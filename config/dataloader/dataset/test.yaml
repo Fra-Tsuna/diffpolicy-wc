@@ -1,6 +1,6 @@
 _target_: src.dataset.dataset.Dataset
 data_root: ${data_root}
-repo_id: lerobot/pusht
+repo_id: ${repo_id}
 split: test
 n_obs_steps: ${model.n_obs_steps}
 horizon: ${model.horizon}

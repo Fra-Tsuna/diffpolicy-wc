@@ -2,15 +2,16 @@ defaults:
   - train
   - _self_
 
-# Policy source: checkpoint_path (a best.pth trained here) takes precedence over pretrained_path (a LeRobot policy directory).
-# Create the default pretrained_path with scripts/download_pretrained.sh (Hub lerobot/diffusion_pusht, converted for lerobot 0.6).
-pretrained_path: ${ckpt_root}/diffusion_pusht
+# Policy source: checkpoint_path (a best.pth trained here) 
+# The simulator is the env config group (env=pusht or env=aloha_transfer_cube; the experiment selects it).
 checkpoint_path: null
 apply_ema: false
 n_episodes: 3
-max_steps: 300
+# Defaults to the env's time limit (PushT 300 steps at 10 Hz, ALOHA 400 steps at 50 Hz).
+max_steps: ${env.episode_length}
+# MP4 videos and metrics.json (success rate, rewards, lengths).
 video_dir: ${result_dir}/videos
-# Draw the denoising of each action chunk, then the plan being executed, on the videos.
+# Draw the denoising of each action chunk, then the plan being executed, on the videos (PushT only).
 diffusion_overlay: true
 denoising_frames: 5
 

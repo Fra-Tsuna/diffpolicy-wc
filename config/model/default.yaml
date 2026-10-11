@@ -6,4 +6,10 @@ num_train_timesteps: 100
 num_inference_steps: 20
 down_dims: [128, 256, 512]
 pretrained_backbone_weights: null
+# Image preprocessing inside the policy, applied identically in training and rollouts: resize, then crop.
+# With resize_shape set, LeRobot derives the crop from crop_ratio (1.0 = no crop) and ignores crop_shape.
+resize_shape: null
+crop_ratio: 1.0
+crop_shape: null
+crop_is_random: true
 # repo_id comes from Dataset.model_kwargs() and is saved with the checkpoint.

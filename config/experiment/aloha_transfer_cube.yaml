@@ -1,0 +1,63 @@
+# @package _global_
+# Diffusion Policy on ALOHA Transfer Cube: 50 human demonstrations at 50 Hz, 14-D joint states and actions,
+# one 480x640 top camera. Run with: python main.py experiment=aloha_transfer_cube
+# The main hyperparameters are restated here, even where they equal the group defaults, so this file
+# shows the whole experiment. Rollout settings (n_episodes, max_steps, ...) stay in rollout.yaml, which
+# is applied after the experiment.
+
+defaults:
+  - override /model: default
+  - override /optimizer: adamw
+  - override /lr_scheduler: cosine
+  - override /env: aloha_transfer_cube
+
+name: diffusion_aloha_transfer_cube
+seed: 42
+repo_id: lerobot/aloha_sim_transfer_cube_human
+# No pretrained ALOHA Diffusion Policy: rollout.py needs checkpoint_path (or an explicit pretrained_path).
+pretrained_path: null
+
+model:
+  n_obs_steps: 2
+  horizon: 16
+  n_action_steps: 8
+  num_train_timesteps: 100
+  num_inference_steps: 20
+  down_dims: [128, 256, 512]
+  pretrained_backbone_weights: null
+  # Downscale the whole frame by 5 (aspect ratio kept) without cropping, so both grippers and the cube stay visible.
+  resize_shape: [96, 128]
+  crop_ratio: 1.0
+  crop_shape: null
+  crop_is_random: true
+
+optimizer:
+  lr: 1.0e-4
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  weight_decay: 1.0e-2
+
+lr_scheduler:
+  num_warmup_steps: 500
+
+trainer:
+  iterations: 10000
+  validate_every: 500
+  checkpoint_every: 500
+  patience: null
+  grad_clip_norm: 1.0
+  use_ema: false
+  ema:
+    decay: 0.9999
+    power: 0.75
+
+accelerator:
+  mixed_precision: "no"
+
+# Frames are decoded from 480x640 AV1 videos: workers speed up loading (0.59 s -> 0.12 s per batch of 64 with 8).
+train_dataloader:
+  batch_size: 64
+  num_workers: 0
+val_dataloader:
+  batch_size: 64
+  num_workers: 0

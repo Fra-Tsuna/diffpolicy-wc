@@ -3,6 +3,7 @@
 # Usage:
 #   scripts/eval.sh outputs/diffusion_pusht/<date>/<time>/checkpoints/best.pth
 #   scripts/eval.sh <checkpoint> split=val apply_ema=true
+#   scripts/eval.sh <aloha checkpoint> experiment=aloha_transfer_cube
 set -euo pipefail
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <checkpoint.pth> [hydra overrides...]" >&2

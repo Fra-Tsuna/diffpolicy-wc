@@ -1,4 +1,4 @@
-"""Episode-disjoint PushT demonstrations with Diffusion Policy temporal windows."""
+"""Episode-disjoint LeRobot demonstrations (PushT, ALOHA) with Diffusion Policy temporal windows."""
 
 import numpy as np
 from lerobot.datasets import LeRobotDataset, LeRobotDatasetMetadata

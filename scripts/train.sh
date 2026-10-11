@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Train Diffusion Policy on PushT. Extra arguments are Hydra overrides.
+# Train Diffusion Policy (PushT by default). Extra arguments are Hydra overrides.
 # Usage:
 #   scripts/train.sh
+#   scripts/train.sh experiment=aloha_transfer_cube
 #   scripts/train.sh trainer.iterations=50000 wandb.mode=offline
 #   scripts/train.sh resume_from=outputs/diffusion_pusht/<date>/<time>/checkpoints/last
 #   NUM_GPUS=2 scripts/train.sh

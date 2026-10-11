@@ -8,12 +8,19 @@ defaults:
   - dataloader@val_dataloader: val
   - trainer: default
   - wandb: default
+  # Simulator for rollout.py; part of the experiment, unused by training.
+  - env: pusht
   - experiment: null
   - override hydra/hydra_logging: colorlog
   - override hydra/job_logging: colorlog
 
 name: diffusion_pusht
 seed: 42
+# LeRobot dataset of the train, val and test splits.
+repo_id: lerobot/pusht
+# Policy that rollout.py runs when no checkpoint_path is given; unused by training.
+# Create it with scripts/download_pretrained.sh (Hub lerobot/diffusion_pusht, converted for lerobot 0.6).
+pretrained_path: ${ckpt_root}/diffusion_pusht
 original_work_dir: ${hydra:runtime.cwd}
 data_root: ${original_work_dir}/data
 ckpt_root: ${original_work_dir}/ckpt
