@@ -97,6 +97,8 @@ Episode `i` uses seed `seed + i` for both the simulator (initial cube or block p
 
 The PushT videos show the denoising of each action chunk and the plan being executed (`diffusion_overlay`, `denoising_frames`). The overlay draws 2-D positions, so it is disabled for ALOHA, whose actions are joint targets.
 
+The ALOHA videos are recorded from the scene camera `video_camera`, which the env config sets to `angle` (a raised view from the robots' side), because gym-aloha's own render is the top-down policy camera, where the arms and the cube are hard to follow. The policy still sees `top`, the only camera in the dataset. Other scene cameras are `top`, `front_close`, `left_pillar`, `right_pillar`, `left_wrist` and `right_wrist`; `video_camera=null` records gym-aloha's render. `metrics.json` records the camera used.
+
 ## Outputs
 
 Each run writes to its own directory, along with its resolved config, log file and W&B files:

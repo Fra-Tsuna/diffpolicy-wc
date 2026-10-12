@@ -8,10 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import imageio.v2 as imageio
+import numpy as np
 import pytest
 import torch
 from gymnasium.spaces import Box
 from hydra import compose, initialize_config_dir
+from hydra.utils import instantiate
 from lerobot.configs import FeatureType, PolicyFeature
 
 from rollout import check_compatibility
@@ -119,6 +121,7 @@ def test_aloha_rollout_reports_env_success_and_records_video(tmp_path, monkeypat
     metrics = rollout_main.__wrapped__(cfg)
 
     assert metrics["env"] == "gym_aloha/AlohaTransferCube-v0"
+    assert metrics["video_camera"] == "angle"
     assert metrics["n_episodes"] == 2
     assert metrics["n_successes"] == (2 if forced_success else 0)
     assert metrics["success_rate"] == (1.0 if forced_success else 0.0)
@@ -129,3 +132,29 @@ def test_aloha_rollout_reports_env_success_and_records_video(tmp_path, monkeypat
     frames = imageio.mimread(tmp_path / "videos/episode_000.mp4")
     assert len(frames) == (1 if forced_success else 4)
     assert frames[0].shape == (480, 640, 3)
+
+
+def test_video_camera_renders_the_selected_scene_camera():
+    pytest.importorskip("gym_aloha")
+    from lerobot.envs import make_env
+
+    from src.utils.viz import make_video_renderer
+
+    cfg = compose_config("rollout", ["experiment=aloha_transfer_cube"])
+    assert cfg.video_camera == "angle"
+    assert compose_config("rollout").video_camera is None
+    env_cfg = instantiate(cfg.env)
+    env = make_env(env_cfg, n_envs=1, use_async_envs=False)[env_cfg.type][0]
+    try:
+        env.reset(seed=0)
+        default = make_video_renderer(env, None)()
+        top = make_video_renderer(env, "top")()
+        angle = make_video_renderer(env, "angle")()
+        # The env's own render is the "top" camera; "angle" is a different view of the same state.
+        assert default.shape == angle.shape == (480, 640, 3)
+        assert np.array_equal(default, top)
+        assert not np.array_equal(default, angle)
+        with pytest.raises(ValueError, match="Unknown video_camera"):
+            make_video_renderer(env, "nonexistent")
+    finally:
+        env.close()

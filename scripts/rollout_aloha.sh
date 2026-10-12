@@ -20,6 +20,10 @@ OVERRIDES=(
     seed=42
     # At most the env's time limit (400 steps = 8 s at 50 Hz)
     max_steps=400
+
+    # Camera of the videos (the policy always sees "top"): top, angle, front_close, left_pillar, right_pillar,
+    # left_wrist, right_wrist
+    video_camera=angle
 )
 
 exec "$(dirname "${BASH_SOURCE[0]}")/rollout.sh" experiment=aloha_transfer_cube "${OVERRIDES[@]}" "$@"

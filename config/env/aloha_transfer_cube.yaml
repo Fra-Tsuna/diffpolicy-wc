@@ -1,4 +1,11 @@
+# @package _global_
 # LeRobot simulator used by rollout.py. episode_length is the env's time limit and the default max_steps.
-_target_: lerobot.envs.AlohaEnv
-task: AlohaTransferCube-v0
-episode_length: 400
+env:
+  _target_: lerobot.envs.AlohaEnv
+  task: AlohaTransferCube-v0
+  episode_length: 400
+
+# Camera of the rollout videos; the policy always sees "top", the only camera in the dataset.
+# Scene cameras: top, angle, front_close, left_pillar, right_pillar, left_wrist, right_wrist.
+# null records the env's own render ("top").
+video_camera: angle

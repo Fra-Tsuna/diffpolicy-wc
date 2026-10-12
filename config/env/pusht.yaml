@@ -1,4 +1,9 @@
+# @package _global_
 # LeRobot simulator used by rollout.py. episode_length is the env's time limit and the default max_steps.
-_target_: lerobot.envs.PushtEnv
-task: PushT-v0
-episode_length: 300
+env:
+  _target_: lerobot.envs.PushtEnv
+  task: PushT-v0
+  episode_length: 300
+
+# Camera of the rollout videos; PushT is 2-D and has only its own render (null).
+video_camera: null

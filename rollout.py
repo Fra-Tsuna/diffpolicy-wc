@@ -18,6 +18,7 @@ from lerobot.utils.constants import ACTION
 
 from src.trainer.checkpoint_manager import CheckpointManager
 from src.utils.diffusion_overlay import DiffusionOverlay
+from src.utils.viz import make_video_renderer
 
 
 def check_compatibility(policy_config, batch, env):
@@ -52,6 +53,7 @@ def main(cfg: DictConfig):
 
     env_cfg = instantiate(cfg.env)
     env = make_env(env_cfg, n_envs=1, use_async_envs=False)[env_cfg.type][0]
+    render = make_video_renderer(env, cfg.video_camera)
     env_preprocessor, env_postprocessor = make_env_pre_post_processors(env_cfg, policy.config)
     overlay = None
     # The overlay draws 2D PushT positions; ALOHA actions are 14 joint targets.
@@ -74,7 +76,7 @@ def main(cfg: DictConfig):
             set_seed(seed)
             observation, _ = env.reset(seed=seed)
             policy.reset()
-            frame = env.call("render")[0]
+            frame = render()
             frames = [frame]
             rewards = []
             success = False
@@ -97,7 +99,7 @@ def main(cfg: DictConfig):
                 success = success or bool(step_info["is_success"][0])
                 if done:
                     break
-                frame = env.call("render")[0]
+                frame = render()
                 frames.append(frame if overlay is None else overlay.draw_plan(frame))
 
             path = video_dir / f"episode_{episode:03d}.mp4"
@@ -116,6 +118,7 @@ def main(cfg: DictConfig):
         "env": env_cfg.gym_id,
         "policy": cfg.checkpoint_path or cfg.pretrained_path,
         "apply_ema": cfg.apply_ema,
+        "video_camera": cfg.video_camera,
         "n_episodes": len(episodes),
         "n_successes": n_successes,
         "success_rate": n_successes / len(episodes),
