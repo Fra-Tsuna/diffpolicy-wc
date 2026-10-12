@@ -78,6 +78,22 @@ def test_aloha_model_sees_the_whole_resized_frame():
     assert shapes == [(4, 3, 96, 128)]
 
 
+def test_backbone_normalization_follows_use_group_norm():
+    from src.models.model import DiffusionPolicyWrapper
+
+    def norm_layers(model):
+        encoder = model.policy.diffusion.rgb_encoder
+        encoder = encoder[0] if isinstance(encoder, torch.nn.ModuleList) else encoder
+        return {type(module) for module in encoder.backbone.modules()
+                if isinstance(module, (torch.nn.BatchNorm2d, torch.nn.GroupNorm))}
+
+    assert norm_layers(DiffusionPolicyWrapper(ALOHA, resize_shape=[96, 128])) == {torch.nn.BatchNorm2d}
+    assert norm_layers(DiffusionPolicyWrapper(ALOHA, resize_shape=[96, 128], use_group_norm=True)) == {torch.nn.GroupNorm}
+
+    cfg = compose_config("train", ["experiment=aloha_transfer_cube", "model.use_group_norm=true"])
+    assert cfg.model.use_group_norm is True and cfg.model.pretrained_backbone_weights is None
+
+
 @pytest.mark.parametrize("forced_success", [False, True])
 def test_aloha_rollout_reports_env_success_and_records_video(tmp_path, monkeypatch, forced_success):
     pytest.importorskip("gym_aloha")

@@ -25,6 +25,7 @@ model:
   num_inference_steps: 20
   down_dims: [128, 256, 512]
   pretrained_backbone_weights: null
+  use_group_norm: false
   # Downscale the whole frame by 5 (aspect ratio kept) without cropping, so both grippers and the cube stay visible.
   resize_shape: [96, 128]
   crop_ratio: 1.0

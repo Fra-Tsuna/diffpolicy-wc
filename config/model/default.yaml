@@ -5,7 +5,10 @@ n_action_steps: 8
 num_train_timesteps: 100
 num_inference_steps: 20
 down_dims: [128, 256, 512]
+# ResNet18 vision backbone: torchvision weights (e.g. ResNet18_Weights.IMAGENET1K_V1) or null to train from scratch.
+# use_group_norm replaces its BatchNorm layers with GroupNorm; LeRobot rejects it together with pretrained weights.
 pretrained_backbone_weights: null
+use_group_norm: false
 # Image preprocessing inside the policy, applied identically in training and rollouts: resize, then crop.
 # With resize_shape set, LeRobot derives the crop from crop_ratio (1.0 = no crop) and ignores crop_shape.
 resize_shape: null

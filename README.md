@@ -45,6 +45,8 @@ scripts/train_aloha.sh                              # ALOHA Transfer Cube (= scr
 
 The policy reads its feature names and dimensions from the dataset metadata, so no observation key or size is configured by hand. Images are resized and cropped inside the policy (`model.resize_shape`, `model.crop_ratio`, `model.crop_shape`, `model.crop_is_random`), so training, offline evaluation and rollouts preprocess identically. The values are saved with the checkpoint. PushT keeps its native 96x96 images. ALOHA resizes the whole 480x640 frame to 96x128 (aspect ratio kept) without cropping, because at the start of an episode the grippers sit at the left and right image borders. With `resize_shape` set, LeRobot 0.6.1 derives the crop from `crop_ratio` (1.0 = no crop) and ignores `crop_shape`.
 
+The ResNet18 vision backbone starts from random weights with BatchNorm by default. `model.pretrained_backbone_weights=ResNet18_Weights.IMAGENET1K_V1` initializes it from torchvision's ImageNet weights, and `model.use_group_norm=true` replaces its BatchNorm layers with GroupNorm, as in the original Diffusion Policy. LeRobot rejects the two together, since swapping the normalization layers would invalidate the pretrained weights. Both values are saved with the checkpoint; checkpoints saved without `use_group_norm` load with BatchNorm.
+
 ## Usage
 
 ```bash

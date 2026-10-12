@@ -21,6 +21,7 @@ class DiffusionPolicyWrapper(nn.Module):
         num_inference_steps: int = 20,
         down_dims: tuple[int, ...] = (128, 256, 512),
         pretrained_backbone_weights: str | None = None,
+        use_group_norm: bool = False,
         resize_shape: tuple[int, int] | None = None,
         crop_ratio: float = 1.0,
         crop_shape: tuple[int, int] | None = None,
@@ -42,6 +43,7 @@ class DiffusionPolicyWrapper(nn.Module):
             num_inference_steps=num_inference_steps,
             down_dims=tuple(down_dims),
             pretrained_backbone_weights=pretrained_backbone_weights,
+            use_group_norm=use_group_norm,
             # The policy resizes and crops images itself, so training and rollouts preprocess identically.
             resize_shape=tuple(resize_shape) if resize_shape is not None else None,
             crop_ratio=crop_ratio,
