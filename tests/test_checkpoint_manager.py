@@ -40,7 +40,7 @@ def test_full_state_restores_training_objects_counters_and_rng(tmp_path, use_ema
         if ema is not None:
             ema.step(model.parameters())
 
-    manager.best_val_loss = 0.25
+    manager.best_metric = 0.25
     manager.counter = 3
     manager.early_stop = True
     expected_model = copy.deepcopy(model.state_dict())
@@ -59,7 +59,7 @@ def test_full_state_restores_training_objects_counters_and_rng(tmp_path, use_ema
     manager.iteration = 0
     manager.counter = 0
     manager.early_stop = False
-    manager.best_val_loss = float("inf")
+    manager.best_metric = float("inf")
     if ema is not None:
         ema.step(model.parameters())
     if use_scaler:
@@ -70,7 +70,7 @@ def test_full_state_restores_training_objects_counters_and_rng(tmp_path, use_ema
 
     manager.load_training(path)
     assert manager.state_dict() == {
-        "iteration": 7, "best_val_loss": 0.25, "counter": 3, "early_stop": True, "num_processes": 1,
+        "iteration": 7, "best_metric": 0.25, "counter": 3, "early_stop": True, "num_processes": 1,
     }
     for key, value in expected_model.items():
         assert torch.equal(model.state_dict()[key], value)
@@ -175,13 +175,13 @@ def test_ema_restore_keeps_its_device_without_calling_to(tmp_path, monkeypatch):
 
 def test_resume_restores_counters_even_when_best_model_is_newer(tmp_path):
     accelerator, model, optimizer, scheduler, ema, manager = runtime(tmp_path)
-    manager.best_val_loss = 0.5
+    manager.best_metric = 0.5
     manager.counter = 2
     last = manager.save_training(3)
     manager.save_if_best(0.25, model, {}, 4)
     manager.load_training(last)
     assert manager.iteration == 3
-    assert manager.best_val_loss == 0.5
+    assert manager.best_metric == 0.5
     assert manager.counter == 2
     assert not manager.early_stop
 
@@ -200,11 +200,11 @@ def test_lightweight_best_exports_ema_without_changing_live_weights(tmp_path):
         for parameter in model.parameters():
             parameter.add_(10)
     expected_model = copy.deepcopy(model.state_dict())
-    manager.best_val_loss = 0.5
+    manager.best_metric = 0.5
     best = manager.save_model(model, {"model": {}}, 2)
     checkpoint = manager.read(best)
     assert set(checkpoint) == {
-        "iteration", "model_state_dict", "ema_model_state_dict", "config", "best_val_loss",
+        "iteration", "model_state_dict", "ema_model_state_dict", "config", "best_metric",
     }
     for key, value in expected_model.items():
         assert torch.equal(model.state_dict()[key], value)
@@ -240,3 +240,25 @@ def test_failed_best_save_preserves_previous_model(tmp_path, monkeypatch, failur
         manager.save_model(model, {}, 2)
     assert best.read_bytes() == previous
     assert manager.read(best)["iteration"] == 1
+
+
+def test_maximized_metric_selects_highest_and_counts_ties_as_no_improvement(tmp_path):
+    accelerator = Accelerator(cpu=True)
+    model = accelerator.prepare(TestModel(1))
+    manager = CheckpointManager(tmp_path, accelerator, patience=2, maximize=True)
+    assert manager.save_if_best(0.0, model, {}, 1)
+    assert manager.save_if_best(0.4, model, {}, 2)
+    assert not manager.save_if_best(0.4, model, {}, 3)
+    assert not manager.save_if_best(0.2, model, {}, 4)
+    assert manager.early_stop
+    best = manager.read(tmp_path / "best.pth")
+    assert best["iteration"] == 2 and best["best_metric"] == 0.4
+
+
+def test_state_saved_with_best_val_loss_still_loads(tmp_path):
+    accelerator, model, optimizer, scheduler, ema, manager = runtime(tmp_path)
+    manager.load_state_dict({"iteration": 5, "best_val_loss": 0.3, "counter": 1, "early_stop": False,
+                             "num_processes": 1})
+    assert manager.best_metric == 0.3
+    assert not manager.save_if_best(0.4, model, {}, 6)
+    assert manager.save_if_best(0.2, model, {}, 7)

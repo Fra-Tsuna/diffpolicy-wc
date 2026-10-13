@@ -16,7 +16,7 @@ from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from lerobot.configs import FeatureType, PolicyFeature
 
-from rollout import check_compatibility
+from src.inference.rollout import check_compatibility
 from rollout import main as rollout_main
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +38,7 @@ def test_experiment_selects_aloha_everywhere_and_keeps_pusht_default():
     aloha = compose_config("eval", ["experiment=aloha_transfer_cube"])
     for split in ("train", "val", "test"):
         assert aloha[f"{split}_dataloader"].dataset.repo_id == ALOHA
-    assert list(aloha.model.resize_shape) == [96, 128]
+    assert list(aloha.model.resize_shape) == [192, 256]
     assert aloha.model.crop_ratio == 1.0
     assert aloha.env.task == "AlohaTransferCube-v0"
     aloha_rollout = compose_config("rollout", ["experiment=aloha_transfer_cube"])
@@ -158,3 +158,41 @@ def test_video_camera_renders_the_selected_scene_camera():
             make_video_renderer(env, "nonexistent")
     finally:
         env.close()
+
+
+def test_aloha_training_selects_best_by_rollouts(tmp_path, monkeypatch):
+    pytest.importorskip("gym_aloha")
+    from main import main as training_main
+    from src.trainer.checkpoint_manager import CheckpointManager
+    from src.trainer.trainer import TrainingPipeline
+
+    cfg = compose_config("train", ["experiment=aloha_transfer_cube"])
+    assert cfg.model.use_group_norm and list(cfg.model.resize_shape) == [192, 256]
+    assert cfg.trainer.use_ema and cfg.trainer.ema.decay == 0.999
+    assert cfg.trainer.best_metric == "success_rate"
+    assert cfg.train_dataloader.dataset.image_transforms.cfg.enable
+    assert "image_transforms" not in cfg.val_dataloader.dataset
+    cfg.original_work_dir = str(tmp_path)
+    cfg.result_dir = str(tmp_path / "run")
+    cfg.accelerator.cpu = True
+    cfg.wandb.mode = "offline"
+    cfg.train_dataloader.batch_size = 2
+    cfg.trainer.iterations = 2
+    cfg.trainer.validate_every = 2
+    cfg.trainer.checkpoint_every = 2
+    cfg.trainer.rollout.n_episodes = 2
+    cfg.trainer.rollout.max_steps = 3
+    # The full validation split is too slow on CPU at 192x256; the rollouts are what this test covers.
+    monkeypatch.setattr(TrainingPipeline, "validate", lambda self: {"loss": 1.0})
+    training_main.__wrapped__(cfg)
+
+    rollout_dir = tmp_path / "run/rollouts/iter_000002"
+    metrics = json.loads((rollout_dir / "metrics.json").read_text())
+    assert metrics["n_episodes"] == 2
+    assert [episode["seed"] for episode in metrics["episodes"]] == [1000, 1001]
+    assert all(episode["length"] == 3 for episode in metrics["episodes"])
+    assert sorted(path.name for path in rollout_dir.glob("*.mp4")) == ["episode_000.mp4", "episode_001.mp4"]
+    best = CheckpointManager.read(tmp_path / "run/checkpoints/best.pth")
+    assert best["iteration"] == 2 and best["best_metric"] == metrics["success_rate"]
+    assert best["ema_model_state_dict"] is not None
+    assert best["config"]["model"]["use_group_norm"] is True

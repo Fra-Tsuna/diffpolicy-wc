@@ -87,7 +87,7 @@ def test_train_checkpoint_resume_and_evaluate(tmp_path, use_ema, monkeypatch):
     eval_cfg.checkpoint_path = str(best_path)
     eval_cfg.apply_ema = use_ema
     metrics = evaluation_main.__wrapped__(eval_cfg)
-    assert metrics["mse"] == pytest.approx(CheckpointManager.read(best_path)["best_val_loss"])
+    assert metrics["mse"] == pytest.approx(CheckpointManager.read(best_path)["best_metric"])
     assert json.loads((tmp_path / "evaluation/metrics.json").read_text()) == metrics
     assert list((tmp_path / "evaluation/wandb").rglob("*.wandb"))
     assert "eval/test/mse" in logged[-1]
@@ -208,6 +208,44 @@ def test_failed_validation_restores_live_weights_and_mode(tmp_path, monkeypatch)
     assert model.training
     for actual, original in zip(model.parameters(), expected):
         assert torch.equal(actual, original)
+
+
+def test_best_model_follows_rollout_success_rate(tmp_path, monkeypatch):
+    from src.trainer.trainer import TrainingPipeline
+
+    cfg = configuration(tmp_path)
+    cfg.trainer.iterations = 6
+    cfg.trainer.validate_every = 2
+    cfg.trainer.rollout = {"n_episodes": 4, "seed": 1000}
+    cfg.trainer.best_metric = "success_rate"
+    rates = iter([0.25, 0.75, 0.5])
+    logged = []
+    original_log = Accelerator.log
+
+    def fake_rollouts(self, step):
+        # The simulator is replaced, but the episodes still run on the evaluation (EMA) weights.
+        return {"success_rate": next(rates), "n_episodes": 4}
+
+    def record_log(self, values, step=None, **kwargs):
+        logged.append({"step": step, **values})
+        return original_log(self, values, step=step, **kwargs)
+
+    monkeypatch.setattr(TrainingPipeline, "evaluate_rollouts", fake_rollouts)
+    monkeypatch.setattr(Accelerator, "log", record_log)
+    training_main.__wrapped__(cfg)
+    best = CheckpointManager.read(tmp_path / "run/checkpoints/best.pth")
+    assert best["iteration"] == 4
+    assert best["best_metric"] == 0.75
+    assert [record["rollout/success_rate"] for record in logged if "rollout/success_rate" in record] == [0.25, 0.75, 0.5]
+    assert all("val/loss" in record for record in logged if "rollout/success_rate" in record)
+
+
+def test_success_rate_selection_requires_rollouts(tmp_path):
+    cfg = configuration(tmp_path)
+    cfg.trainer.best_metric = "success_rate"
+    # Hydra wraps the trainer's ValueError in an InstantiationException that keeps its message.
+    with pytest.raises(Exception, match="needs trainer.rollout"):
+        training_main.__wrapped__(cfg)
 
 
 @pytest.mark.parametrize("overrides", [[], ["experiment=default"], ["lr_scheduler=constant"]])

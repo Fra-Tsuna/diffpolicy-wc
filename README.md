@@ -43,15 +43,15 @@ scripts/train_aloha.sh                              # ALOHA Transfer Cube (= scr
 
 `experiment=aloha_transfer_cube` ([config/experiment/aloha_transfer_cube.yaml](config/experiment/aloha_transfer_cube.yaml)) sets the dataset of all three splits (`repo_id`), the run name `diffusion_aloha_transfer_cube`, the image preprocessing and the simulator (`env=aloha_transfer_cube`). Pass it to `eval.sh` and `rollout.sh` too, so they use the ALOHA test split and simulator.
 
-The policy reads its feature names and dimensions from the dataset metadata, so no observation key or size is configured by hand. Images are resized and cropped inside the policy (`model.resize_shape`, `model.crop_ratio`, `model.crop_shape`, `model.crop_is_random`), so training, offline evaluation and rollouts preprocess identically. The values are saved with the checkpoint. PushT keeps its native 96x96 images. ALOHA resizes the whole 480x640 frame to 96x128 (aspect ratio kept) without cropping, because at the start of an episode the grippers sit at the left and right image borders. With `resize_shape` set, LeRobot 0.6.1 derives the crop from `crop_ratio` (1.0 = no crop) and ignores `crop_shape`.
+The policy reads its feature names and dimensions from the dataset metadata, so no observation key or size is configured by hand. Images are resized and cropped inside the policy (`model.resize_shape`, `model.crop_ratio`, `model.crop_shape`, `model.crop_is_random`), so training, offline evaluation and rollouts preprocess identically. The values are saved with the checkpoint. PushT keeps its native 96x96 images. ALOHA resizes the whole 480x640 frame to 192x256 (aspect ratio kept) without cropping, because at the start of an episode the grippers sit at the left and right image borders; at 96x128 the cube was only about 4x4 pixels. Its training frames are also jittered in brightness, contrast and saturation (each in [0.9, 1.1], 2 of the 3 per sample, the same on all observation frames of a sample) with LeRobot's `ImageTransforms`, configured under `train_dataloader.dataset.image_transforms` in the experiment; validation and test frames are left unchanged. With `resize_shape` set, LeRobot 0.6.1 derives the crop from `crop_ratio` (1.0 = no crop) and ignores `crop_shape`.
 
-The ResNet18 vision backbone starts from random weights with BatchNorm by default. `model.pretrained_backbone_weights=ResNet18_Weights.IMAGENET1K_V1` initializes it from torchvision's ImageNet weights, and `model.use_group_norm=true` replaces its BatchNorm layers with GroupNorm, as in the original Diffusion Policy. LeRobot rejects the two together, since swapping the normalization layers would invalidate the pretrained weights. Both values are saved with the checkpoint; checkpoints saved without `use_group_norm` load with BatchNorm.
+The ResNet18 vision backbone starts from random weights with BatchNorm by default; the ALOHA experiment uses GroupNorm. `model.pretrained_backbone_weights=ResNet18_Weights.IMAGENET1K_V1` initializes it from torchvision's ImageNet weights, and `model.use_group_norm=true` replaces its BatchNorm layers with GroupNorm, as in the original Diffusion Policy. LeRobot rejects the two together, since swapping the normalization layers would invalidate the pretrained weights. Both values are saved with the checkpoint; checkpoints saved without `use_group_norm` load with BatchNorm.
 
 ## Usage
 
 ```bash
-# Train (best.pth is selected on the validation loss)
-scripts/train_aloha.sh trainer.use_ema=true train_dataloader.num_workers=8
+# Train (ALOHA: best.pth is selected on the success rate of rollouts during training)
+scripts/train_aloha.sh train_dataloader.num_workers=8
 
 # Offline evaluation: denoising loss on the held-out test split
 scripts/eval.sh <run_dir>/checkpoints/best.pth experiment=aloha_transfer_cube
@@ -68,7 +68,9 @@ Drop `experiment=aloha_transfer_cube` for PushT. Every script forwards extra arg
 
 To resume training, pass `resume_from=<run_dir>/checkpoints/last` with the same experiment. `apply_ema=true` evaluates the EMA weights and requires a checkpoint trained with `trainer.use_ema=true`.
 
-ALOHA frames are decoded from 480x640 AV1 videos, so data loading is slow with the default `num_workers=0`. On a 22-thread laptop CPU, one batch of 64 took 0.59 s with 0 workers and 0.12 s with 8. Pass e.g. `train_dataloader.num_workers=8`; the ALOHA experiment gives the validation loader the same count. Mixing 0 and >0 workers between the two loaders crashes with `decodeAVFrame ... Invalid data`: LeRobot caches open video decoders per process, and workers forked after the main process has decoded inherit them. The training iteration count is the shared default (`trainer.iterations=10000`); set it explicitly for a full ALOHA run.
+ALOHA frames are decoded from 480x640 AV1 videos, so data loading is slow with the default `num_workers=0`. On a 22-thread laptop CPU, one batch of 64 took 0.59 s with 0 workers and 0.12 s with 8. Pass e.g. `train_dataloader.num_workers=8`; the ALOHA experiment gives the validation loader the same count. Mixing 0 and >0 workers between the two loaders crashes with `decodeAVFrame ... Invalid data`: LeRobot caches open video decoders per process, and workers forked after the main process has decoded inherit them. The training iteration count is the shared default (`trainer.iterations=10000`); set it explicitly for a full ALOHA run, as `scripts/train_aloha.sh` does (100000, with a global batch of 64 split across `NUM_GPUS`, 500 warmup steps and EMA with decay 0.999).
+
+`best.pth` is selected by `trainer.best_metric`: `loss` keeps the lowest validation loss (the default), `success_rate` the highest success rate of the rollouts that `trainer.rollout` runs at every validation (the ALOHA experiment). The rollouts use the EMA weights when EMA is enabled, are split across the GPUs, and always replay the same episodes (seeds `trainer.rollout.seed + i`, 1000 onwards for ALOHA, so they differ from `rollout.py`'s default 42). A tie does not replace `best.pth`. Each evaluation writes `metrics.json`, and with `save_videos` one MP4 per episode from `video_camera`, to `<run_dir>/rollouts/iter_<step>/`, and logs `rollout/success_rate` and the other statistics to W&B. `trainer.patience` counts evaluations without improvement of the same metric.
 
 ### Pretrained policy
 
@@ -83,7 +85,7 @@ There is no pretrained ALOHA Diffusion Policy, so the ALOHA experiment has no `p
 
 ## Offline loss versus closed-loop success
 
-- `eval.py` and validation report the diffusion **denoising loss** on held-out demonstrations: how well the model predicts the noise added to demonstrated action chunks. It is cheap and selects `best.pth`, but it does not measure whether the policy completes the task.
+- `eval.py` and validation report the diffusion **denoising loss** on held-out demonstrations: how well the model predicts the noise added to demonstrated action chunks. It is cheap and selects `best.pth` by default, but it does not measure whether the policy completes the task.
 - `rollout.py` runs the policy **in closed loop** in the simulator and reports task success. This is the performance measure of a policy. A lower denoising loss does not imply a higher success rate.
 
 `rollout.py` writes `videos/metrics.json` with `n_episodes`, `n_successes`, `success_rate`, `mean_sum_reward` (mean total reward per episode), `mean_max_reward`, `mean_length` (steps) and one entry per episode (seed, success, reward, length, video). Success is the simulator's own `is_success` flag, read from the finished episode's `final_info`:
@@ -105,7 +107,7 @@ Each run writes to its own directory, along with its resolved config, log file a
 
 | Command | Directory |
 | --- | --- |
-| train | `outputs/<name>/<date>/<time>/`, with `checkpoints/best.pth` (weights only) and `checkpoints/last/` (full state for resuming) |
+| train | `outputs/<name>/<date>/<time>/`, with `checkpoints/best.pth` (weights only), `checkpoints/last/` (full state for resuming) and, with `trainer.rollout`, `rollouts/iter_<step>/` (MP4s and `metrics.json`) |
 | eval | `outputs/<name>/eval/<date>/<time>/metrics.json` |
 | rollout | `outputs/<name>/rollout/<date>/<time>/videos/` (MP4s and `metrics.json`) |
 

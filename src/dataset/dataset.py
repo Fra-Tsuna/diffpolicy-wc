@@ -17,6 +17,7 @@ class Dataset(TorchDataset):
         val_fraction: float = 0.1,
         test_fraction: float = 0.1,
         seed: int = 42,
+        image_transforms=None,
     ):
         self.data_root = Path(data_root)
         self.split = split
@@ -50,8 +51,11 @@ class Dataset(TorchDataset):
             ):
                 delta_timestamps[name] = obs_offsets
 
+        # Optional torchvision v2 transform (e.g. lerobot.transforms.ImageTransforms), applied by LeRobot to the
+        # stacked frames of each camera after decoding; configured for the training split only.
         self.dataset = LeRobotDataset(
-            repo_id, episodes=selected.tolist(), delta_timestamps=delta_timestamps
+            repo_id, episodes=selected.tolist(), delta_timestamps=delta_timestamps,
+            image_transforms=image_transforms,
         )
 
     def __len__(self):

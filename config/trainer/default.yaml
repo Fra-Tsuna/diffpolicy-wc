@@ -15,4 +15,9 @@ ema:
   decay: 0.9999
   inv_gamma: 1.0
   power: 0.75
+# Closed-loop episodes in the experiment's simulator at every validation, e.g.
+# {n_episodes: 20, seed: 1000, max_steps: null (env time limit), save_videos: true}; null disables them.
+rollout: null
+# Selection metric of best.pth (and of patience): loss (validation, lower is better) or success_rate (rollouts).
+best_metric: loss
 # model, dataloaders, optimizer, lr_scheduler, accelerator, run_config are supplied at runtime.

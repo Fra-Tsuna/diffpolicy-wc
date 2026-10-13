@@ -25,9 +25,8 @@ model:
   num_inference_steps: 20
   down_dims: [128, 256, 512]
   pretrained_backbone_weights: null
-  use_group_norm: false
-  # Downscale the whole frame by 5 (aspect ratio kept) without cropping, so both grippers and the cube stay visible.
-  resize_shape: [96, 128]
+  use_group_norm: true
+  resize_shape: [192, 256]
   crop_ratio: 1.0
   crop_shape: null
   crop_is_random: true
@@ -43,24 +42,52 @@ lr_scheduler:
 
 trainer:
   iterations: 10000
-  validate_every: 500
-  checkpoint_every: 500
+  validate_every: 5000
+  checkpoint_every: 5000
   patience: null
   grad_clip_norm: 1.0
-  use_ema: false
+  use_ema: true
   ema:
-    decay: 0.9999
+    decay: 0.999
     power: 0.75
+
+  rollout:
+    n_episodes: 20
+    seed: 1000
+    max_steps: null
+    save_videos: true
+  best_metric: success_rate
 
 accelerator:
   mixed_precision: "no"
 
-# Frames are decoded from 480x640 AV1 videos: workers speed up loading (0.59 s -> 0.12 s per batch of 64 with 8).
-# Both loaders need workers or neither: LeRobot caches open video decoders per process, and workers forked
-# after the main process has decoded inherit them and fail with "decodeAVFrame ... Invalid data".
 train_dataloader:
   batch_size: 64
   num_workers: 0
+  dataset:
+    image_transforms:
+      _target_: lerobot.transforms.ImageTransforms
+      cfg:
+        _target_: lerobot.transforms.ImageTransformsConfig
+        enable: true
+        max_num_transforms: 2
+        random_order: false
+        tfs:
+          brightness:
+            _target_: lerobot.transforms.ImageTransformConfig
+            type: ColorJitter
+            kwargs:
+              brightness: [0.9, 1.1]
+          contrast:
+            _target_: lerobot.transforms.ImageTransformConfig
+            type: ColorJitter
+            kwargs:
+              contrast: [0.9, 1.1]
+          saturation:
+            _target_: lerobot.transforms.ImageTransformConfig
+            type: ColorJitter
+            kwargs:
+              saturation: [0.9, 1.1]
 val_dataloader:
   batch_size: 64
   num_workers: ${train_dataloader.num_workers}

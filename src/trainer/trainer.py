@@ -1,13 +1,18 @@
+import json
 import logging
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import torch
-from accelerate.utils import broadcast
+from accelerate.utils import broadcast, gather_object
 from diffusers.training_utils import EMAModel
 from tqdm.auto import tqdm
 
+from src.inference.rollout import make_rollout_env, preserved_rng, run_episodes, summarize
 from src.trainer.checkpoint_manager import CheckpointManager
 from src.utils.torch_utils import aggregate_metrics, batch_size, cycle
+from src.utils.viz import make_video_renderer
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +36,8 @@ class TrainingPipeline:
         use_ema=False,
         ema=None,
         checkpoint_every=500,
+        rollout=None,
+        best_metric="loss",
     ):
 
         if iterations < 1 or validate_every < 1 or checkpoint_every < 1:
@@ -43,6 +50,10 @@ class TrainingPipeline:
             raise ValueError(
                 "This training loop requires gradient_accumulation_steps=1."
             )
+        if best_metric not in ("loss", "success_rate"):
+            raise ValueError("best_metric must be 'loss' (validation) or 'success_rate' (rollouts).")
+        if best_metric == "success_rate" and rollout is None:
+            raise ValueError("best_metric=success_rate needs trainer.rollout.")
 
         # The model, optimizer, scheduler, and DataLoaders are prepared in main.py.
         self.model = model
@@ -56,6 +67,11 @@ class TrainingPipeline:
         self.validate_every = validate_every
         self.checkpoint_every = checkpoint_every
         self.grad_clip_norm = grad_clip_norm
+        self.result_dir = Path(result_dir)
+        # Closed-loop episodes in the experiment's simulator at every validation; the env is built on first use.
+        self.rollout = rollout
+        self.rollout_env = None
+        self.best_metric = best_metric
 
         # EMA tracks the underlying model parameters, independently of the wrapper.
         parameters = accelerator.unwrap_model(model).parameters()
@@ -75,6 +91,7 @@ class TrainingPipeline:
             patience=patience,
             ema=self.ema,
             dataloader=checkpoint_loader,
+            maximize=best_metric == "success_rate",
         )
         self.start_iteration = 0
 
@@ -142,16 +159,27 @@ class TrainingPipeline:
             }
             metrics["lr"] = lr
 
-            # Validation returns global sample-weighted means on every rank.
-            # The manager synchronizes best-model selection and early stopping state.
+            # Validation returns global sample-weighted means on every rank, and rollouts global episode
+            # statistics. The manager synchronizes best-model selection and early stopping state.
             if step % self.validate_every == 0 or step == self.iterations:
                 last_metrics = self.validate()
                 metrics.update(
                     {f"val/{key}": value for key, value in last_metrics.items()}
                 )
-                self.manager.save_if_best(
-                    last_metrics["loss"], self.model, self.config, step
+                if self.rollout is not None:
+                    rollout_metrics = self.evaluate_rollouts(step)
+                    metrics.update(
+                        {f"rollout/{key}": value for key, value in rollout_metrics.items()}
+                    )
+                    last_metrics.update(
+                        {f"rollout/{key}": value for key, value in rollout_metrics.items()}
+                    )
+                selection = (
+                    last_metrics["rollout/success_rate"]
+                    if self.best_metric == "success_rate"
+                    else last_metrics["loss"]
                 )
+                self.manager.save_if_best(selection, self.model, self.config, step)
 
             # Save full training state independently of validation.
             # Include the final update and any update that triggers early stopping.
@@ -172,24 +200,25 @@ class TrainingPipeline:
                 break
 
         progress.close()
+        if self.rollout_env is not None:
+            self.rollout_env[1].close()
+            self.rollout_env = None
         return last_metrics
 
-    @torch.inference_mode()
-    def validate(self):
+    @contextmanager
+    def evaluation_model(self):
+        """Evaluate the unwrapped model in eval mode, with EMA weights when enabled, then restore training."""
         # Preserve the prepared training model and its current mode.
         training_model = self.model
         was_training = training_model.training
 
-        # Unwrap the model so uneven validation shards can finish independently.
+        # Unwrap the model so uneven evaluation shards can finish independently.
         self.model = self.accelerator.unwrap_model(training_model)
         # DDP buffers can differ after the last training batch; evaluate one shared state.
         for buffer in self.model.buffers():
             broadcast(buffer, from_process=0)
         parameters = list(self.model.parameters())
         ema_stored = False
-
-        totals = {}
-        total_weight = 0
         try:
             # Temporarily use EMA weights, keeping the live training weights for restoration.
             if self.ema is not None:
@@ -197,7 +226,21 @@ class TrainingPipeline:
                 ema_stored = True
                 self.ema.copy_to(parameters)
             self.model.eval()
+            yield self.model
+        finally:
+            # Restore the live weights, prepared model, and original mode after evaluation.
+            try:
+                if ema_stored:
+                    self.ema.restore(parameters)
+            finally:
+                self.model = training_model
+                self.model.train(was_training)
 
+    @torch.inference_mode()
+    def validate(self):
+        totals = {}
+        total_weight = 0
+        with self.evaluation_model():
             # Accumulate weighted metric sums and sample counts within each process.
             for batch in self.val_dataloader:
                 with self.accelerator.autocast():
@@ -208,16 +251,49 @@ class TrainingPipeline:
                 for key, value in losses.items():
                     totals[key] = totals.get(key, 0.0) + value.item() * weight
 
-            # Combine process totals into global means, accounting for unequal shard sizes.
-            return aggregate_metrics(totals, total_weight)
-        finally:
-            # Restore the live weights, prepared model, and original mode after validation.
-            try:
-                if ema_stored:
-                    self.ema.restore(parameters)
-            finally:
-                self.model = training_model
-                self.model.train(was_training)
+        # Combine process totals into global means, accounting for unequal shard sizes.
+        return aggregate_metrics(totals, total_weight)
+
+    def evaluate_rollouts(self, step):
+        """Run closed-loop episodes, split across processes, and return global success statistics.
+
+        Episode i uses seed rollout.seed + i at every evaluation, so successive checkpoints face the same initial
+        states. Videos and metrics.json go to <result_dir>/rollouts/iter_<step>.
+        """
+        n_episodes = self.rollout["n_episodes"]
+        start = time.time()
+        output_dir = self.result_dir / "rollouts" / f"iter_{step:06d}"
+        video_dir = output_dir if self.rollout.get("save_videos", False) else None
+        if self.accelerator.is_main_process:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        self.accelerator.wait_for_everyone()
+
+        with self.evaluation_model() as model, preserved_rng():
+            policy = model.policy
+            preprocessor, postprocessor = model.get_processors()
+            if self.rollout_env is None:
+                self.rollout_env = make_rollout_env(self.config["env"], policy.config)
+            env_cfg, env, env_preprocessor, env_postprocessor = self.rollout_env
+            render = make_video_renderer(env, self.config.get("video_camera")) if video_dir else None
+            episodes = run_episodes(
+                policy, preprocessor, postprocessor, env, env_preprocessor, env_postprocessor,
+                episodes=range(self.accelerator.process_index, n_episodes, self.accelerator.num_processes),
+                seed=self.rollout["seed"],
+                max_steps=self.rollout.get("max_steps") or env_cfg.episode_length,
+                render=render, video_dir=video_dir, fps=env_cfg.fps,
+            )
+
+        episodes = sorted(gather_object(episodes), key=lambda result: result["episode"])
+        metrics = summarize(episodes)
+        if self.accelerator.is_main_process:
+            report = {"iteration": step, "seed": self.rollout["seed"], **metrics, "episodes": episodes}
+            (output_dir / "metrics.json").write_text(json.dumps(report, indent=2) + "\n")
+            logger.info(
+                "Rollouts at iteration %s: success rate %s/%s in %.0f s",
+                step, metrics["n_successes"], metrics["n_episodes"], time.time() - start,
+            )
+        metrics["seconds"] = time.time() - start
+        return metrics
 
     def resume(self, checkpoint_path):
         if self.manager.dataloader is None:

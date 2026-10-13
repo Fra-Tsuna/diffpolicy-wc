@@ -6,14 +6,15 @@
 # Usage:
 #   scripts/rollout_aloha.sh
 #   scripts/rollout_aloha.sh checkpoint_path=outputs/diffusion_aloha_transfer_cube/<date>/<time>/checkpoints/best.pth
-#   scripts/rollout_aloha.sh n_episodes=50 apply_ema=true
+#   scripts/rollout_aloha.sh n_episodes=50 checkpoint_path=ckpt/diffusion_aloha_transfer_cube/iter_50000.pth apply_ema=false
 set -euo pipefail
 
 OVERRIDES=(
     # Policy: a best.pth trained here (copy a run's checkpoints/best.pth to this path, or override it)
     checkpoint_path=ckpt/diffusion_aloha_transfer_cube/best.pth
-    # EMA weights; needs a checkpoint trained with trainer.use_ema=true
-    apply_ema=false
+    # EMA weights, as used by training's rollouts to select best.pth; set false for a checkpoint trained without
+    # EMA (trainer.use_ema=false), which has none
+    apply_ema=true
 
     # Episodes: episode i uses seed + i for the initial cube pose and the diffusion noise
     n_episodes=10

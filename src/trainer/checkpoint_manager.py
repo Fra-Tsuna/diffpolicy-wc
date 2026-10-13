@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class CheckpointManager:
-    def __init__(self, checkpoints_path, accelerator, patience=None, ema=None, dataloader=None):
+    def __init__(self, checkpoints_path, accelerator, patience=None, ema=None, dataloader=None, maximize=False):
         self.checkpoints_path = Path(checkpoints_path).resolve()
+        # The best model minimizes the selection metric (validation loss) unless maximize is set (success rate).
+        self.maximize = maximize
         self.accelerator = accelerator
         self.ema = ema
         self.dataloader = dataloader
@@ -33,7 +35,7 @@ class CheckpointManager:
         self.owner = self._main_call(initialize)
 
         self.iteration = 0
-        self.best_val_loss = float("inf")
+        self.best_metric = float("-inf") if maximize else float("inf")
         self.patience = patience
         self.counter = 0
         self.early_stop = False
@@ -47,7 +49,7 @@ class CheckpointManager:
     def state_dict(self):
         return {
             "iteration": self.iteration,
-            "best_val_loss": self.best_val_loss,
+            "best_metric": self.best_metric,
             "counter": self.counter,
             "early_stop": self.early_stop,
             "num_processes": self.accelerator.num_processes,
@@ -57,7 +59,8 @@ class CheckpointManager:
         if state["num_processes"] != self.accelerator.num_processes:
             raise ValueError("Resume training with the same number of processes.")
         self.iteration = state["iteration"]
-        self.best_val_loss = state["best_val_loss"]
+        # States saved before the metric became configurable store the validation loss as best_val_loss.
+        self.best_metric = state["best_metric"] if "best_metric" in state else state["best_val_loss"]
         self.counter = state["counter"]
         self.early_stop = state["early_stop"]
 
@@ -138,7 +141,7 @@ class CheckpointManager:
                 "model_state_dict": weights,
                 "ema_model_state_dict": ema_weights,
                 "config": config,
-                "best_val_loss": self.best_val_loss,
+                "best_metric": self.best_metric,
             }, staging)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -147,21 +150,21 @@ class CheckpointManager:
         logger.info("Saved best model: %s", path)
         return path
 
-    def save_if_best(self, val_loss, model, config, iteration):
-        # Validation must already be aggregated by sample count, not by rank count.
-        losses = gather_object([float(val_loss)])
-        if any(loss != losses[0] for loss in losses):
-            raise ValueError("Pass the same globally aggregated validation loss on every rank.")
-        val_loss = losses[0]
+    def save_if_best(self, metric, model, config, iteration):
+        # The metric must already be aggregated globally (by sample or episode count, not by rank count).
+        values = gather_object([float(metric)])
+        if any(value != values[0] for value in values):
+            raise ValueError("Pass the same globally aggregated selection metric on every rank.")
+        metric = values[0]
 
         def decide():
-            improved = val_loss < self.best_val_loss
-            self.best_val_loss = val_loss if improved else self.best_val_loss
+            improved = metric > self.best_metric if self.maximize else metric < self.best_metric
+            self.best_metric = metric if improved else self.best_metric
             self.counter = 0 if improved else self.counter + 1
             self.early_stop = not improved and self.patience is not None and self.counter >= self.patience
-            return improved, self.best_val_loss, self.counter, self.early_stop
+            return improved, self.best_metric, self.counter, self.early_stop
 
-        improved, self.best_val_loss, self.counter, self.early_stop = self._main_call(decide)
+        improved, self.best_metric, self.counter, self.early_stop = self._main_call(decide)
         if improved:
             self.save_model(model, config, iteration)
         return improved
