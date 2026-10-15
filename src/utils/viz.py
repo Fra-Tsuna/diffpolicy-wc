@@ -16,13 +16,18 @@ def setup_savefig(res_path, fig_fmt="png", dpi=300, transparent_png=False):
     return partial(save_fig, fig_dir=res_path, fig_fmt=fig_fmt, dpi=dpi, transparent_png=transparent_png)
 
 
+def mujoco_physics(env):
+    """The dm_control physics of a single-env MuJoCo simulator such as gym-aloha, or None (e.g. PushT)."""
+    return getattr(getattr(env.envs[0].unwrapped, "_env", None), "physics", None)
+
+
 def make_video_renderer(env, camera):
     """Return a function rendering the current video frame: the env's own render, or a named MuJoCo camera."""
     if camera is None:
         return lambda: env.call("render")[0]
     # gym-aloha renders only "top"; its dm_control physics renders any camera of the scene.
     sim = env.envs[0].unwrapped
-    physics = getattr(getattr(sim, "_env", None), "physics", None)
+    physics = mujoco_physics(env)
     if physics is None:
         raise ValueError(f"video_camera needs a MuJoCo simulator such as ALOHA, got {type(sim).__name__}.")
     cameras = [physics.model.id2name(index, "camera") for index in range(physics.model.ncam)]

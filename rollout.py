@@ -8,14 +8,14 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from lerobot.envs import PushtEnv
+from lerobot.envs import AlohaEnv, PushtEnv
 from lerobot.policies import make_pre_post_processors
 from lerobot.policies.diffusion import DiffusionPolicy
 
 from src.inference.rollout import make_rollout_env, run_episodes, summarize
 from src.trainer.checkpoint_manager import CheckpointManager
-from src.utils.diffusion_overlay import DiffusionOverlay
-from src.utils.viz import make_video_renderer
+from src.utils.diffusion_overlay import AlohaGripperPixels, DiffusionOverlay, PushtPixels
+from src.utils.viz import make_video_renderer, mujoco_physics
 
 
 @hydra.main(version_base=None, config_path="config", config_name="rollout")
@@ -40,13 +40,19 @@ def main(cfg: DictConfig):
     env_cfg, env, env_preprocessor, env_postprocessor = make_rollout_env(cfg.env, policy.config)
     render = make_video_renderer(env, cfg.video_camera)
     overlay = None
-    # The overlay draws 2D PushT positions; ALOHA actions are 14 joint targets.
-    if cfg.diffusion_overlay and isinstance(env_cfg, PushtEnv):
-        overlay = DiffusionOverlay(
-            policy,
-            to_env_action=lambda actions: env_postprocessor({"action": postprocessor(actions)})["action"],
-            denoising_frames=cfg.denoising_frames,
-        )
+    if cfg.diffusion_overlay:
+        def to_env_action(actions):
+            return env_postprocessor({"action": postprocessor(actions)})["action"]
+
+        # PushT actions are 2-D positions; ALOHA actions are 14 joint targets, drawn as the fingertip positions
+        # they give each gripper, seen from the video camera ("top" when video_camera is null).
+        if isinstance(env_cfg, PushtEnv):
+            to_pixels = PushtPixels(to_env_action)
+        elif isinstance(env_cfg, AlohaEnv):
+            to_pixels = AlohaGripperPixels(to_env_action, mujoco_physics(env), cfg.video_camera or "top")
+        else:
+            raise ValueError(f"diffusion_overlay supports PushT and ALOHA, got {type(env_cfg).__name__}.")
+        overlay = DiffusionOverlay(policy, to_pixels, denoising_frames=cfg.denoising_frames)
     video_dir = Path(cfg.video_dir)
     video_dir.mkdir(parents=True, exist_ok=True)
 
@@ -58,7 +64,7 @@ def main(cfg: DictConfig):
         episodes = run_episodes(
             policy, preprocessor, postprocessor, env, env_preprocessor, env_postprocessor,
             episodes=range(cfg.n_episodes), seed=cfg.seed, max_steps=cfg.max_steps, render=render,
-            video_dir=video_dir, fps=env_cfg.fps, overlay=overlay, log=log,
+            video_dir=video_dir, fps=cfg.video_fps or env_cfg.fps, overlay=overlay, log=log,
         )
     finally:
         env.close()
@@ -68,6 +74,7 @@ def main(cfg: DictConfig):
         "policy": cfg.checkpoint_path or cfg.pretrained_path,
         "apply_ema": cfg.apply_ema,
         "video_camera": cfg.video_camera,
+        "video_fps": cfg.video_fps or env_cfg.fps,
         **summarize(episodes),
         "episodes": episodes,
     }

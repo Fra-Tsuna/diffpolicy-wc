@@ -25,6 +25,8 @@ OVERRIDES=(
     # Camera of the videos (the policy always sees "top"): top, angle, front_close, left_pillar, right_pillar,
     # left_wrist, right_wrist
     video_camera=angle
+    # Playback rate: the simulator runs at 50 Hz, so 10 fps plays the videos 5x slower than real time
+    video_fps=10
 )
 
 exec "$(dirname "${BASH_SOURCE[0]}")/rollout.sh" experiment=aloha_transfer_cube "${OVERRIDES[@]}" "$@"

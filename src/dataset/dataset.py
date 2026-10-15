@@ -51,8 +51,6 @@ class Dataset(TorchDataset):
             ):
                 delta_timestamps[name] = obs_offsets
 
-        # Optional torchvision v2 transform (e.g. lerobot.transforms.ImageTransforms), applied by LeRobot to the
-        # stacked frames of each camera after decoding; configured for the training split only.
         self.dataset = LeRobotDataset(
             repo_id, episodes=selected.tolist(), delta_timestamps=delta_timestamps,
             image_transforms=image_transforms,

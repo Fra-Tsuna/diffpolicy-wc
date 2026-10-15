@@ -11,7 +11,10 @@ n_episodes: 3
 max_steps: ${env.episode_length}
 # MP4 videos and metrics.json (success rate, rewards, lengths).
 video_dir: ${result_dir}/videos
-# Draw the denoising of each action chunk, then the plan being executed, on the videos (PushT only).
+# Playback rate of the videos; null plays them in real time at the simulator rate (PushT 10 Hz, ALOHA 50 Hz).
+video_fps: null
+# Draw the denoising of each action chunk, then the plan being executed, on the videos. PushT draws the agent
+# positions; ALOHA draws where each gripper's fingertips would be, seen from video_camera.
 diffusion_overlay: true
 denoising_frames: 5
 

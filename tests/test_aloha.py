@@ -118,6 +118,8 @@ def test_aloha_rollout_reports_env_success_and_records_video(tmp_path, monkeypat
     cfg.accelerator.cpu = True
     cfg.n_episodes = 2
     cfg.max_steps = 3
+    # One frame per step here; the overlay's extra denoising frames are covered separately.
+    cfg.diffusion_overlay = False
     metrics = rollout_main.__wrapped__(cfg)
 
     assert metrics["env"] == "gym_aloha/AlohaTransferCube-v0"
@@ -196,3 +198,50 @@ def test_aloha_training_selects_best_by_rollouts(tmp_path, monkeypatch):
     assert best["iteration"] == 2 and best["best_metric"] == metrics["success_rate"]
     assert best["ema_model_state_dict"] is not None
     assert best["config"]["model"]["use_group_norm"] is True
+
+
+def test_aloha_overlay_projects_gripper_fingertips(tmp_path):
+    pytest.importorskip("gym_aloha")
+    from dm_control.mujoco.engine import Camera
+    from lerobot.envs import make_env
+
+    from src.models.model import DiffusionPolicyWrapper
+    from src.utils.diffusion_overlay import AlohaGripperPixels
+    from src.utils.viz import mujoco_physics
+
+    cfg = compose_config("rollout", ["experiment=aloha_transfer_cube"])
+    env_cfg = instantiate(cfg.env)
+    env = make_env(env_cfg, n_envs=1, use_async_envs=False)[env_cfg.type][0]
+    try:
+        env.reset(seed=0)
+        physics = mujoco_physics(env)
+        # Actions equal to the current arm joints must land on the current fingertips.
+        qpos = physics.data.qpos
+        action = np.concatenate([qpos[0:6], [0.0], qpos[8:14], [0.0]])
+        project = AlohaGripperPixels(lambda actions: actions, physics, "angle")
+        pixels = project(torch.tensor(action, dtype=torch.float64)[None, None], (480, 640, 3))[0, 0]
+        fingertips = np.stack([physics.named.data.xpos[f"vx300s_{arm}/camera_focus"] for arm in ("left", "right")])
+        homogeneous = np.concatenate([fingertips, np.ones((2, 1))], axis=1) @ Camera(
+            physics, height=480, width=640, camera_id="angle").matrix.T
+        np.testing.assert_allclose(pixels, homogeneous[:, :2] / homogeneous[:, 2:], atol=1e-6)
+        # Left gripper on the left, right gripper on the right, both inside the frame.
+        assert 0 < pixels[0, 0] < 320 < pixels[1, 0] < 640 and all(0 < y < 480 for y in pixels[:, 1])
+    finally:
+        env.close()
+
+    # A full rollout with the overlay inserts the denoising frames of the first chunk before the first step.
+    model = DiffusionPolicyWrapper(ALOHA, resize_shape=[96, 128])
+    checkpoint_path = tmp_path / "best.pth"
+    torch.save({"model_state_dict": model.state_dict(), "ema_model_state_dict": None,
+                "config": {"model": {"_target_": "src.models.model.DiffusionPolicyWrapper", "repo_id": ALOHA,
+                                     "resize_shape": [96, 128]}}}, checkpoint_path)
+    cfg.original_work_dir = str(tmp_path)
+    cfg.video_dir = str(tmp_path / "videos")
+    cfg.checkpoint_path = str(checkpoint_path)
+    cfg.accelerator.cpu = True
+    cfg.n_episodes = 1
+    cfg.max_steps = 3
+    cfg.denoising_frames = 4
+    rollout_main.__wrapped__(cfg)
+    frames = imageio.mimread(tmp_path / "videos/episode_000.mp4")
+    assert len(frames) == 1 + 4 + 3
